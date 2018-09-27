@@ -11,67 +11,43 @@ import NightscoutUploadKit
 import ShareClient
 
 
-class RemoteDataManager {
+final class RemoteDataManager {
 
-    var nightscoutUploader: NightscoutUploader? {
-        return nightscoutService.uploader
-    }
+    weak var delegate: RemoteDataManagerDelegate?
 
     var nightscoutService: NightscoutService {
         didSet {
             keychain.setNightscoutURL(nightscoutService.siteURL, secret: nightscoutService.APISecret)
-            UIDevice.currentDevice().batteryMonitoringEnabled = true
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            delegate?.remoteDataManagerDidUpdateServices(self)
         }
-    }
-
-    var shareClient: ShareClient? {
-        return shareService.client
     }
 
     var shareService: ShareService {
         didSet {
-            try! keychain.setDexcomShareUsername(shareService.username, password: shareService.password)
+            try! keychain.setDexcomShareUsername(shareService.username, password: shareService.password, url: shareService.url)
         }
     }
 
     private let keychain = KeychainManager()
 
     init() {
-        if let (username, password) = keychain.getDexcomShareCredentials() {
-            shareService = ShareService(username: username, password: password)
+        if let (username, password, url) = keychain.getDexcomShareCredentials() {
+            shareService = ShareService(username: username, password: password, url: url)
         } else {
-            shareService = ShareService(username: nil, password: nil)
+            shareService = ShareService(username: nil, password: nil, url: nil)
         }
 
         if let (siteURL, APISecret) = keychain.getNightscoutCredentials() {
             nightscoutService = NightscoutService(siteURL: siteURL, APISecret: APISecret)
-            UIDevice.currentDevice().batteryMonitoringEnabled = true
+            UIDevice.current.isBatteryMonitoringEnabled = true
         } else {
             nightscoutService = NightscoutService(siteURL: nil, APISecret: nil)
         }
     }
+}
 
-    func uploadDeviceStatus(pumpStatus: NightscoutUploadKit.PumpStatus? = nil, loopStatus: LoopStatus? = nil) {
 
-        guard let uploader = nightscoutUploader else {
-            return
-        }
-
-        // Gather UploaderStatus
-        let uploaderDevice = UIDevice.currentDevice()
-
-        let battery: Int?
-        if uploaderDevice.batteryMonitoringEnabled {
-            battery = Int(uploaderDevice.batteryLevel * 100)
-        } else {
-            battery = nil
-        }
-        let uploaderStatus = UploaderStatus(name: uploaderDevice.name, timestamp: NSDate(), battery: battery)
-
-        // Build DeviceStatus
-        let deviceStatus = DeviceStatus(device: "loop://\(uploaderDevice.name)", timestamp: NSDate(), pumpStatus: pumpStatus, uploaderStatus: uploaderStatus, loopStatus: loopStatus)
-
-        uploader.uploadDeviceStatus(deviceStatus)
-    }
-
+protocol RemoteDataManagerDelegate: class {
+    func remoteDataManagerDidUpdateServices(_ dataManager: RemoteDataManager)
 }

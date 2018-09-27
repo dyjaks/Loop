@@ -7,10 +7,10 @@
 //
 
 import Foundation
-import AmplitudeFramework
+import Amplitude
 
 
-class AnalyticsManager {
+final class AnalyticsManager: IdentifiableClass {
 
     var amplitudeService: AmplitudeService {
         didSet {
@@ -24,26 +24,24 @@ class AnalyticsManager {
         } else {
             amplitudeService = AmplitudeService(APIKey: nil)
         }
+
+        logger = DiagnosticLogger.shared.forCategory(type(of: self).className)
     }
 
-    static let sharedManager = AnalyticsManager()
+    static let shared = AnalyticsManager()
 
     // MARK: - Helpers
 
-    private var isSimulator: Bool = TARGET_OS_SIMULATOR != 0
+    private var logger: CategoryLogger?
 
-    private func logEvent(name: String, withProperties properties: [NSObject: AnyObject]? = nil, outOfSession: Bool = false) {
-        if isSimulator {
-            NSLog("\(name) \(properties ?? [:])")
-        } else {
-            amplitudeService.client?.logEvent(name, withEventProperties: properties, outOfSession: outOfSession)
-        }
-
+    private func logEvent(_ name: String, withProperties properties: [AnyHashable: Any]? = nil, outOfSession: Bool = false) {
+        logger?.debug("\(name) \(properties ?? [:])")
+        amplitudeService.client?.logEvent(name, withEventProperties: properties, outOfSession: outOfSession)
     }
 
     // MARK: - UIApplicationDelegate
 
-    func application(application: UIApplication, didFinishLaunchingWithOptions launchOptions: [NSObject : AnyObject]?) {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [AnyHashable: Any]?) {
         logEvent("App Launch")
     }
 
@@ -63,20 +61,24 @@ class AnalyticsManager {
 
     // MARK: - Config Events
 
-    func didChangeRileyLinkConnectionState() {
-        logEvent("RileyLink Connection")
+    func transmitterTimeDidDrift(_ drift: TimeInterval) {
+        logEvent("Transmitter time change", withProperties: ["value" : drift], outOfSession: true)
     }
 
-    func transmitterTimeDidDrift(drift: NSTimeInterval) {
-        logEvent("Transmitter time change", withProperties: ["value" : drift])
+    func pumpTimeDidDrift(_ drift: TimeInterval) {
+        logEvent("Pump time change", withProperties: ["value": drift], outOfSession: true)
+    }
+
+    func punpTimeZoneDidChange() {
+        logEvent("Pump time zone change", outOfSession: true)
     }
 
     func pumpBatteryWasReplaced() {
-        logEvent("Pump battery replacement")
+        logEvent("Pump battery replacement", outOfSession: true)
     }
 
     func reservoirWasRewound() {
-        logEvent("Pump reservoir rewind")
+        logEvent("Pump reservoir rewind", outOfSession: true)
     }
 
     func didChangeBasalRateSchedule() {
@@ -87,38 +89,63 @@ class AnalyticsManager {
         logEvent("Carb ratio change")
     }
 
-    func didChangeInsulinActionDuration() {
-        logEvent("Insulin action duration change")
+    func didChangeInsulinModel() {
+        logEvent("Insulin model change")
     }
 
     func didChangeInsulinSensitivitySchedule() {
         logEvent("Insulin sensitivity change")
     }
 
-    func didChangeGlucoseTargetRangeSchedule() {
-        logEvent("Glucose target range change")
+    func didChangeLoopSettings(from oldValue: LoopSettings, to newValue: LoopSettings) {
+        if newValue.maximumBasalRatePerHour != oldValue.maximumBasalRatePerHour {
+            logEvent("Maximum basal rate change")
+        }
+
+        if newValue.maximumBolus != oldValue.maximumBolus {
+            logEvent("Maximum bolus change")
+        }
+
+        if newValue.suspendThreshold != oldValue.suspendThreshold {
+            logEvent("Minimum BG Guard change")
+        }
+
+        if newValue.dosingEnabled != oldValue.dosingEnabled {
+            logEvent("Closed loop enabled change")
+        }
+
+        if newValue.retrospectiveCorrectionEnabled != oldValue.retrospectiveCorrectionEnabled {
+            logEvent("Retrospective correction enabled change")
+        }
+
+        if newValue.glucoseTargetRangeSchedule != oldValue.glucoseTargetRangeSchedule {
+            if newValue.glucoseTargetRangeSchedule?.timeZone != oldValue.glucoseTargetRangeSchedule?.timeZone {
+                self.punpTimeZoneDidChange()
+            } else if newValue.glucoseTargetRangeSchedule?.override != oldValue.glucoseTargetRangeSchedule?.override {
+                logEvent("Glucose target range override change", outOfSession: true)
+            } else {
+                logEvent("Glucose target range change")
+            }
+        }
     }
 
-    func didChangeMaximumBasalRate() {
-        logEvent("Maximum basal rate change")
-    }
-
-    func didChangeMaximumBolus() {
-        logEvent("Maximum bolus change")
-    }
 
     // MARK: - Loop Events
 
-    func didAddCarbsFromWatch(carbs: Double) {
-        logEvent("Carb entry created", withProperties: ["source" : "Watch", "value": carbs], outOfSession: true)
+    func didAddCarbsFromWatch(_ carbs: Double) {
+        logEvent("Carb entry created", withProperties: ["source" : "Watch"], outOfSession: true)
     }
 
     func didRetryBolus() {
         logEvent("Bolus Retry", outOfSession: true)
     }
 
-    func didSetBolusFromWatch(units: Double) {
-        logEvent("Bolus set", withProperties: ["source" : "Watch", "value": units], outOfSession: true)
+    func didSetBolusFromWatch(_ units: Double) {
+        logEvent("Bolus set", withProperties: ["source" : "Watch"], outOfSession: true)
+    }
+
+    func didFetchNewCGMData() {
+        logEvent("CGM Fetch", outOfSession: true)
     }
 
     func loopDidSucceed() {
